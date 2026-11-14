@@ -73,6 +73,25 @@ export function sendJson(
   res.end(body);
 }
 
+/**
+ * Send an already-serialized JSON body (e.g. the cached issue JSON). Skips
+ * the stringify and the buffer copy `sendJson` would do per request.
+ */
+export function sendPrebuiltJson(
+  res: ServerResponse,
+  status: number,
+  body: Buffer,
+  extraHeaders: Record<string, string> = {},
+): void {
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': body.length,
+    'x-github-request-id': nextRequestId(),
+    ...extraHeaders,
+  });
+  res.end(body);
+}
+
 /** Send a GitHub-style error body: `{message}`. */
 export function sendError(res: ServerResponse, status: number, message: string): void {
   sendJson(res, status, { message });

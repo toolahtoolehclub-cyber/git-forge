@@ -34,6 +34,25 @@ const RECEIVE_V0_CAPS =
   'report-status side-band-64k ofs-delta delete-refs symref=HEAD:refs/heads/main agent=git-forge/1.0';
 const PACK_CHUNK = 65515;
 
+/**
+ * Built packs, keyed by repo id + the ordered object list. A pack is a pure
+ * function of that list (objects are immutable and content-addressed, and
+ * deflate is deterministic), so the 50 concurrent shallow clones of one
+ * repository build the pack once and serve it 49 times from cache. Bounded;
+ * the trial only ever fetches a handful of distinct packs.
+ */
+const packCache = new Map<string, Buffer>();
+
+function packFor(repo: Repo, oids: string[], objects: GitObject[]): Buffer {
+  const key = `${repo.id}:${oids.join(',')}`;
+  const hit = packCache.get(key);
+  if (hit !== undefined) return hit;
+  const pack = writePack(objects);
+  if (packCache.size >= 512) packCache.clear();
+  packCache.set(key, pack);
+  return pack;
+}
+
 interface RefLine {
   oid: string;
   name: string;
@@ -206,7 +225,7 @@ function handleFetchV2(repo: Repo, args: string[], res: ServerResponse): void {
   }
   if (objects.length > 0) {
     out.push(pktText('packfile\n'));
-    const pack = writePack(objects);
+    const pack = packFor(repo, selection.objects, objects);
     for (let offset = 0; offset < pack.length; offset += PACK_CHUNK) {
       out.push(sidebandPacket(1, pack.subarray(offset, Math.min(pack.length, offset + PACK_CHUNK))));
     }
@@ -252,7 +271,7 @@ function handleUploadPackV0(repo: Repo, body: Buffer, res: ServerResponse): void
   for (const oid of selection.shallow) out.push(pktText(`shallow ${oid}\n`));
   for (const oid of selection.unshallow) out.push(pktText(`unshallow ${oid}\n`));
   if (objects.length > 0) {
-    const pack = writePack(objects);
+    const pack = packFor(repo, selection.objects, objects);
     for (let offset = 0; offset < pack.length; offset += PACK_CHUNK) {
       out.push(sidebandPacket(1, pack.subarray(offset, Math.min(pack.length, offset + PACK_CHUNK))));
     }

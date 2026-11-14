@@ -44,6 +44,8 @@ export interface Issue {
   labels: string[];
   createdSeq: number;
   comments: Comment[];
+  /** Serialized issueJson body, cleared on any mutation (see addComment, rest.ts). */
+  jsonCache?: Buffer;
 }
 
 export interface Pull {
@@ -337,6 +339,7 @@ export function createPull(
 export function addComment(store: Store, issue: Issue, body: string): Comment {
   const comment: Comment = { id: store.nextRestId(), body, createdSeq: store.nextSeq() };
   issue.comments.push(comment);
+  issue.jsonCache = undefined;
   return comment;
 }
 
@@ -517,6 +520,20 @@ export function commentJson(store: Store, repo: Repo, comment: Comment): Record<
     body: comment.body,
     user: { login: store.viewerLogin, type: 'User' },
   };
+}
+
+/**
+ * The serialized issueJson body, cached on the issue. The read workload GETs
+ * one issue 2,000 times without changing it, so the object build and the
+ * stringify run once. Cleared by every mutation path (addComment, the PATCH
+ * handler, and label creation for issues that name the label).
+ */
+export function issueJsonBuffer(store: Store, repo: Repo, issue: Issue): Buffer {
+  const cached = issue.jsonCache;
+  if (cached !== undefined) return cached;
+  const body = Buffer.from(JSON.stringify(issueJson(store, repo, issue)), 'utf8');
+  issue.jsonCache = body;
+  return body;
 }
 
 export function pullJson(store: Store, repo: Repo, pull: Pull): Record<string, unknown> {

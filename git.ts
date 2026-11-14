@@ -22,10 +22,13 @@ export function sha1Hex(data: Buffer): string {
   return createHash('sha1').update(data).digest('hex');
 }
 
-/** The id of a git object: sha-1 of `<type> <length>\0<bytes>`. */
+/** The id of a git object: sha-1 of `<type> <length>\0<bytes>`. Streams the
+ * header and the data into the hash instead of concatenating a copy. */
 export function hashObject(type: ObjType, data: Buffer): string {
-  const header = Buffer.from(`${type} ${data.length}\0`, 'utf8');
-  return sha1Hex(Buffer.concat([header, data]));
+  const hash = createHash('sha1');
+  hash.update(`${type} ${data.length}\0`, 'utf8');
+  hash.update(data);
+  return hash.digest('hex');
 }
 
 /** The full on-disk form of an object (header + bytes), for pack entries. */

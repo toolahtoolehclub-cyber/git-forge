@@ -14,6 +14,7 @@ import {
   createPull,
   deleteContents,
   issueJson,
+  issueJsonBuffer,
   mergePull,
   pullFileChanges,
   pullJson,
@@ -31,6 +32,7 @@ import {
   requireAuth,
   sendError,
   sendJson,
+  sendPrebuiltJson,
 } from './http-util.ts';
 
 export interface RestContext {
@@ -45,6 +47,10 @@ export interface RestContext {
 const SCOPES = 'repo, read:org, user';
 
 function scopes(res: ServerResponse, status: number, value: unknown, extra: Record<string, string> = {}): void {
+  if (Buffer.isBuffer(value)) {
+    sendPrebuiltJson(res, status, value, { 'x-oauth-scopes': SCOPES, ...extra });
+    return;
+  }
   sendJson(res, status, value, { 'x-oauth-scopes': SCOPES, ...extra });
 }
 
@@ -475,6 +481,10 @@ async function handleLabels(ctx: RestContext, repo: Repo): Promise<boolean> {
     }
     const label = { id: ctx.store.nextRestId(), name, color, description };
     repo.labels.set(name, label);
+    // A new label changes how issues naming it serialize: drop their caches.
+    for (const issue of repo.issues.values()) {
+      if (issue.labels.includes(name)) issue.jsonCache = undefined;
+    }
     scopes(res, 201, { id: label.id, name, color, description });
     return true;
   }
@@ -563,7 +573,7 @@ async function handleIssues(ctx: RestContext, repo: Repo, rest: string[]): Promi
 
   if (rest.length === 1) {
     if (method === 'GET') {
-      scopes(res, 200, issueJson(ctx.store, repo, issue));
+      scopes(res, 200, issueJsonBuffer(ctx.store, repo, issue));
       return true;
     }
     if (method === 'PATCH') {
@@ -586,6 +596,8 @@ async function handleIssues(ctx: RestContext, repo: Repo, rest: string[]): Promi
         }
         issue.labels = labels;
       }
+      // The issue changed: drop its cached serialized body.
+      issue.jsonCache = undefined;
       scopes(res, 200, issueJson(ctx.store, repo, issue));
       return true;
     }
