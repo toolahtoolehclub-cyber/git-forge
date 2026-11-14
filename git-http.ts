@@ -106,15 +106,18 @@ function v0Advertisement(service: 'git-upload-pack' | 'git-receive-pack', repo: 
 }
 
 function v2Advertisement(): Buffer {
-  return encodePktLines([
-    'version 2\n',
-    `agent=${AGENT}\n`,
-    'ls-refs=unborn\n',
-    'fetch=shallow wait-for-done filter\n',
-    'object-format=sha1\n',
-    'flush',
-  ]);
+  return V2_ADVERTISEMENT;
 }
+
+/** The v2 advertisement never changes: build it once, share the bytes. */
+const V2_ADVERTISEMENT = encodePktLines([
+  'version 2\n',
+  `agent=${AGENT}\n`,
+  'ls-refs=unborn\n',
+  'fetch=shallow wait-for-done filter\n',
+  'object-format=sha1\n',
+  'flush',
+]);
 
 /** GET /{owner}/{repo}.git/info/refs?service=... */
 export function handleInfoRefs(

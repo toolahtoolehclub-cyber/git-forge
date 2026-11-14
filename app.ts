@@ -44,8 +44,14 @@ export function createApp(options: AppOptions): Server {
 }
 
 async function handleRequest(store: Store, token: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-  const segments = pathSegments(url.pathname);
+  // req.url is always origin-form here; split it by hand instead of building
+  // a URL object per request (URL parsing is one of the costlier per-request
+  // steps, and this runs on every single request).
+  const rawUrl = req.url ?? '/';
+  const qIndex = rawUrl.indexOf('?');
+  const pathname = qIndex < 0 ? rawUrl : rawUrl.slice(0, qIndex);
+  const search = qIndex < 0 ? '' : rawUrl.slice(qIndex);
+  const segments = pathSegments(pathname);
   const method = req.method ?? 'GET';
 
   // GET /healthz — the boot check; no auth.
@@ -62,7 +68,7 @@ async function handleRequest(store: Store, token: string, req: IncomingMessage, 
       req,
       res,
       segments,
-      params: queryParams(url.search),
+      params: queryParams(search),
     };
     const handled = await handleRest(ctx);
     if (!handled) sendError(res, 404, 'Not Found');
@@ -99,7 +105,7 @@ async function handleRequest(store: Store, token: string, req: IncomingMessage, 
     segments.length >= 3 &&
     (segments[2] === 'info' || segments[2] === 'git-upload-pack' || segments[2] === 'git-receive-pack')
   ) {
-    await handleGit(store, token, req, res, segments, url);
+    await handleGit(store, token, req, res, segments, search);
     return;
   }
 
@@ -112,7 +118,7 @@ async function handleGit(
   req: IncomingMessage,
   res: ServerResponse,
   segments: string[],
-  url: URL,
+  search: string,
 ): Promise<void> {
   const method = req.method ?? 'GET';
   const owner = segments[0] as string;
@@ -135,7 +141,7 @@ async function handleGit(
   }
   const action = segments[2] as string;
   if (action === 'info' && segments[3] === 'refs' && method === 'GET') {
-    const service = queryParams(url.search).get('service') ?? '';
+    const service = queryParams(search).get('service') ?? '';
     const isV2 = (req.headers['git-protocol'] ?? '') === 'version=2';
     handleInfoRefs(store, repo, service, isV2, res);
     return;

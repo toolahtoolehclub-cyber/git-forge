@@ -812,11 +812,15 @@ export function selectFetchObjects(
   const newBoundaries = new Set<string>();
   // Breadth-first over commits from the wants, tracking distance from the want.
   // A tag want contributes the tag object itself and continues at its target.
+  // An index cursor, not shift(): shift() is O(n) per pop and this queue can
+  // hold a whole history.
   const queue: Array<[string, number]> = [];
+  let queueHead = 0;
   const seen = new Set<string>();
   for (const want of wants) queue.push([want, 0]);
-  while (queue.length > 0) {
-    const [oid, dist] = queue.shift() as [string, number];
+  while (queueHead < queue.length) {
+    const [oid, dist] = queue[queueHead] as [string, number];
+    queueHead += 1;
     if (seen.has(oid)) continue;
     seen.add(oid);
     const object = store.get(oid);

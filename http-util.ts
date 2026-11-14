@@ -115,13 +115,13 @@ export function sendBytes(
 /**
  * Bearer auth. Returns the viewer login when the token matches, 'none' when
  * no token was sent, and 'wrong' when a different token was sent.
+ * A startsWith + slice, not a regex: this runs on every authed request.
  */
 export function checkAuth(req: IncomingMessage, expectedToken: string, viewerLogin: string): string | 'none' | 'wrong' {
   const header = req.headers.authorization;
   if (header === undefined || header === '') return 'none';
-  const match = /^Bearer (.+)$/.exec(header);
-  if (match === null) return 'wrong';
-  return match[1] === expectedToken ? viewerLogin : 'wrong';
+  if (!header.startsWith('Bearer ')) return 'wrong';
+  return header.slice(7) === expectedToken ? viewerLogin : 'wrong';
 }
 
 /** Require auth on a route; sends 401 and returns null when it fails. */
@@ -139,21 +139,28 @@ export function requireAuth(
   return auth;
 }
 
-/** Split a URL path into decoded segments, dropping empty ones. */
+/** Split a URL path into decoded segments, dropping empty ones. One pass; a
+ * segment is only percent-decoded when it actually contains a '%'. */
 export function pathSegments(pathname: string): string[] {
-  return pathname
-    .split('/')
-    .filter((segment) => segment !== '')
-    .map((segment) => {
+  const out: string[] = [];
+  for (const segment of pathname.split('/')) {
+    if (segment === '') continue;
+    if (segment.includes('%')) {
       try {
-        return decodeURIComponent(segment);
+        out.push(decodeURIComponent(segment));
       } catch {
-        return segment;
+        out.push(segment);
       }
-    });
+    } else {
+      out.push(segment);
+    }
+  }
+  return out;
 }
 
-/** Parse a query string into a map of first values. */
+/** Parse a query string into a map of first values. A pair is only
+ * percent-decoded when it actually contains a '%'; when either side fails
+ * to decode, both stay raw, as before. */
 export function queryParams(search: string): Map<string, string> {
   const params = new Map<string, string>();
   const query = search.startsWith('?') ? search.slice(1) : search;
@@ -163,10 +170,14 @@ export function queryParams(search: string): Map<string, string> {
     const key = equals < 0 ? pair : pair.slice(0, equals);
     const value = equals < 0 ? '' : pair.slice(equals + 1);
     if (!params.has(key)) {
-      try {
-        params.set(decodeURIComponent(key), decodeURIComponent(value));
-      } catch {
+      if (!key.includes('%') && !value.includes('%')) {
         params.set(key, value);
+      } else {
+        try {
+          params.set(decodeURIComponent(key), decodeURIComponent(value));
+        } catch {
+          params.set(key, value);
+        }
       }
     }
   }
